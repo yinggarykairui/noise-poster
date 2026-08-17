@@ -358,8 +358,43 @@ function renderPreview() {
     'Noise poster, seed ' + state.seed + ', palette ' + state.palette);
 }
 
+/** The one status line under the controls: role="status", so writing it is
+    also how anything on this page speaks to a screen reader. */
+function setNote(text) {
+  if (els.note.textContent !== text) els.note.textContent = text;
+}
+
+/* Write into the seed field only when the field is not already describing the
+   poster on screen. Two things fall out of that one rule: an emptied field is
+   left empty (its effective seed is the default, which is what is rendered),
+   and a field the user is typing into is never reassigned mid-edit — so the
+   caret cannot be thrown to the end. */
+function syncField() {
+  const typed = clampSeed(els.seed.value);
+  const effective = typed === '' ? DEFAULT_SEED : typed;
+  if (effective === state.seed) return;
+  setFieldValue(state.seed);
+}
+
+/** Assign input.value only when it really differs, and put the caret back. */
+function setFieldValue(text) {
+  if (els.seed.value === text) return;
+  const focused = document.activeElement === els.seed;
+  const start = els.seed.selectionStart;
+  const end = els.seed.selectionEnd;
+  els.seed.value = text;
+  if (focused && start !== null) {
+    try {
+      els.seed.setSelectionRange(Math.min(start, text.length), Math.min(end, text.length));
+    } catch (err) {
+      /* Some browsers refuse setSelectionRange on some input types; the value
+         is already correct, so a lost caret is the worst case. */
+    }
+  }
+}
+
 function syncControls() {
-  if (els.seed.value !== state.seed) els.seed.value = state.seed;
+  syncField();
   for (const btn of els.swatches) {
     btn.setAttribute('aria-pressed', String(btn.dataset.palette === state.palette));
   }
@@ -387,12 +422,33 @@ function apply(next, opts) {
   if (!opts || opts.writeHash !== false) writeHash();
 }
 
+/** The seed the field is asking for right now. An empty field asks for the
+    default poster without the default being typed into it. */
+function fieldSeed() {
+  const typed = clampSeed(els.seed.value);
+  return typed === '' ? DEFAULT_SEED : typed;
+}
+
 function onSeedInput() {
+  // Cut at 64 code points immediately, not 200 ms later, so the field can never
+  // hold a string the rest of the app would disagree with.
+  const cut = clampSeed(els.seed.value);
+  if (cut !== els.seed.value) setFieldValue(cut);
   clearTimeout(seedTimer);
   seedTimer = setTimeout(() => {
-    const seed = clampSeed(els.seed.value);
-    apply({ seed: seed === '' ? DEFAULT_SEED : seed, palette: state.palette });
+    seedTimer = 0;
+    apply({ seed: fieldSeed(), palette: state.palette });
   }, 200);
+}
+
+/** Every control that acts has to take the seed the user has already typed,
+    not race the 200 ms debounce for it. Returns the seed to act on and cancels
+    the pending commit, because the caller is about to do it. */
+function takePendingSeed() {
+  if (!seedTimer) return state.seed;
+  clearTimeout(seedTimer);
+  seedTimer = 0;
+  return fieldSeed();
 }
 
 /* Compare the hash against the state it would produce, never against a
@@ -428,7 +484,7 @@ function buildSwatches() {
     btn.appendChild(bar);
     btn.appendChild(name);
     btn.addEventListener('click', () => {
-      apply({ seed: state.seed, palette: id });
+      apply({ seed: takePendingSeed(), palette: id });
     });
     els.swatchRoot.appendChild(btn);
     return btn;
@@ -450,11 +506,20 @@ function nextPaint() {
   });
 }
 
+const DOWNLOAD_LABEL = 'Download PNG';
+
 async function onDownload() {
-  const label = els.download.textContent;
+  // One snapshot, taken at click time, and the only thing the rest of this
+  // function reads: the pixels, the caption inside them and the filename all
+  // come from the same seed, whatever the field or a Shuffle does during the
+  // ~1.2 s the 8.7-megapixel fill takes. takePendingSeed() first, so a seed
+  // typed less than 200 ms ago is exported rather than the previous one.
+  const snap = { seed: takePendingSeed(), palette: state.palette };
+  if (snap.seed !== state.seed) apply({ seed: snap.seed, palette: snap.palette });
+
   els.download.disabled = true;
   els.download.textContent = 'Rendering…';
-  els.note.textContent = '';
+  setNote('');
   await nextPaint();
 
   let url = '';
@@ -462,7 +527,7 @@ async function onDownload() {
     const off = document.createElement('canvas');   // detached, never in the DOM
     off.width = EXPORT_W;
     off.height = EXPORT_H;
-    drawPoster(off.getContext('2d'), EXPORT_W, EXPORT_H, state.seed, state.palette);
+    drawPoster(off.getContext('2d'), EXPORT_W, EXPORT_H, snap.seed, snap.palette);
 
     const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
     // A null blob, or one under 1 KB, is the silent all-transparent failure a
@@ -472,18 +537,18 @@ async function onDownload() {
     url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'noise-poster-' + slugify(state.seed) + '.png';
+    a.download = 'noise-poster-' + slugify(snap.seed) + '.png';
     document.body.appendChild(a);
     a.click();
     a.remove();
   } catch (err) {
-    els.note.textContent = 'Export failed on this device';
+    setNote('Export failed on this device');
   } finally {
     // Revoke on the next task, not inside the click's own turn: the download is
     // started during click dispatch, and revoking synchronously can cancel it.
     if (url) setTimeout(() => URL.revokeObjectURL(url), 0);
     els.download.disabled = false;
-    els.download.textContent = label;
+    els.download.textContent = DOWNLOAD_LABEL;
   }
 }
 
@@ -499,6 +564,7 @@ function init() {
 
   els.seed.addEventListener('input', onSeedInput);
   els.shuffle.addEventListener('click', () => {
+    takePendingSeed();      // Shuffle replaces the seed, so drop a pending commit
     apply({ seed: randomSeed(), palette: state.palette });
   });
   els.download.addEventListener('click', onDownload);
