@@ -133,3 +133,109 @@ function rampAt(stops, q) {
 function bandCount(seed32) {
   return 5 + ((seed32 >>> 8) % 4);
 }
+
+/* ---- layout ---------------------------------------------------------------
+   Everything is derived from the canvas size, so the preview and the 2480x3508
+   export share one function. At export: M = 198, field 2084 x 2914, caption
+   baseline 3310. */
+
+function layout(W, H) {
+  const m = Math.round(W * 0.08);
+  return {
+    m: m,
+    fw: W - 2 * m,          // noise fills only this rect; the rest is paper
+    fh: H - 3 * m,          // bottom margin is 2m, the classic wider foot
+    captionY: m + (H - 3 * m) + m,
+    fontPx: Math.round(H / 110)
+  };
+}
+
+const CAPTION_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
+/** The seed as it is set on the sheet: control characters become spaces, runs
+    of spaces collapse, ends are trimmed. Falls back to the seed's hash so a
+    seed made only of control characters still prints something reproducible. */
+function displaySeed(seed, seed32) {
+  let out = '';
+  for (const ch of seed) {
+    const cp = ch.codePointAt(0);
+    out += (cp < 0x20 || cp === 0x7f) ? ' ' : ch;
+  }
+  out = out.replace(/ +/g, ' ').trim();
+  return out === '' ? '#' + seed32.toString(16).toUpperCase() : out;
+}
+
+/* ---- the poster ----------------------------------------------------------- */
+
+/**
+ * Draw the whole sheet into ctx at W x H. Pure in the seed: the only term that
+ * reads a device pixel index is the grain.
+ */
+function drawPoster(ctx, W, H, seed, paletteId) {
+  const L = layout(W, H);
+  const seed32 = hashSeed(seed);
+  const stops = PALETTES[paletteId].map(parseHex);
+
+  // Paper first, so the margins are stop 0 everywhere.
+  ctx.fillStyle = 'rgb(' + stops[0][0] + ',' + stops[0][1] + ',' + stops[0][2] + ')';
+  ctx.fillRect(0, 0, W, H);
+
+  // q takes exactly B distinct values, so the ramp needs B lookups, not fw*fh.
+  const B = bandCount(seed32);
+  const band = new Uint8Array(B * 3);
+  for (let b = 0; b < B; b++) {
+    const rgb = rampAt(stops, b / (B - 1));
+    band[b * 3] = rgb[0];
+    band[b * 3 + 1] = rgb[1];
+    band[b * 3 + 2] = rgb[2];
+  }
+
+  const seeds = octaveSeeds(seed32);
+  const grainSeed = (seed32 ^ 0x5bf03635) | 0;
+  const aspect = L.fh / L.fw;               // keeps the noise cells square
+  const img = ctx.createImageData(L.fw, L.fh);
+  const data = img.data;
+  let i = 0;
+
+  for (let py = 0; py < L.fh; py++) {
+    const v = (py + 0.5) / L.fh;
+    const ny = v * F0 * aspect;
+    const tilt = 0.12 * (1 - v);            // fixed vertical tilt: light top
+    for (let px = 0; px < L.fw; px++) {
+      const u = (px + 0.5) / L.fw;
+      const n = fbm(u * F0, ny, seeds);
+      const t0 = n * 0.88 + tilt;
+      const g = hash2(px, py, grainSeed) - 0.5;   // paper tooth
+      const t = Math.min(0.999999, Math.max(0, t0 + 0.012 * g));
+      const b = Math.min(B - 1, Math.floor(t * B)) * 3;
+      data[i++] = band[b];
+      data[i++] = band[b + 1];
+      data[i++] = band[b + 2];
+      data[i++] = 255;
+    }
+  }
+  ctx.putImageData(img, L.m, L.m);
+
+  drawCaption(ctx, W, L, seed, seed32, paletteId, stops[3]);
+}
+
+/** The seed set small in the bottom margin, and the palette name opposite it. */
+function drawCaption(ctx, W, L, seed, seed32, paletteId, inkRgb) {
+  ctx.font = L.fontPx + 'px ' + CAPTION_FONT_STACK;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgb(' + inkRgb[0] + ',' + inkRgb[1] + ',' + inkRgb[2] + ')';
+
+  let text = 'seed: ' + displaySeed(seed, seed32);
+  const limit = L.fw * 0.7;
+  if (ctx.measureText(text).width > limit) {
+    // Cut code points, not UTF-16 units, so a surrogate pair never splits.
+    const cps = Array.from(text);
+    while (cps.length > 1 && ctx.measureText(cps.join('') + '…').width > limit) cps.pop();
+    text = cps.join('') + '…';
+  }
+
+  ctx.textAlign = 'left';
+  ctx.fillText(text, L.m, L.captionY);
+  ctx.textAlign = 'right';
+  ctx.fillText(paletteId, W - L.m, L.captionY);
+}
