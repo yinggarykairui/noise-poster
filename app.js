@@ -446,6 +446,15 @@ const ROW_GAP = 14;
 const STACK_MAX = 440;       // the one-column cap the spec names
 const SIDE_COL = 280;        // controls column when the poster is beside them
 const POSTER_MIN_H = 200;    // below this the sheet stops being a picture
+
+/* The one-column arrangement sizes the poster from the space the controls leave
+   over — and on a phone the controls leave almost nothing: at 320x568 that gave
+   a 147x208 sheet, 12.0% of the viewport against the controls' 20.4%, a control
+   panel with a stamp on it. The poster gets a floor of this fraction of the
+   viewport height instead, and the document scrolls the last part of the
+   control stack. It is a floor, not a cap: whenever the space actually
+   available is larger, the space wins. */
+const POSTER_VH_FLOOR = 0.55;
 const BORDER = 2;            // .poster's 1 px border, both sides
 
 function setArrangement(cls, col) {
@@ -481,23 +490,29 @@ function relayout() {
   setArrangement('lay-stack', colA);
   const freeA = vh - 2 * PAD - chromeHeight() - 2 * ROW_GAP - BORDER;
   const capA = colA - BORDER;
-  let wA = Math.min(capA, Math.max(POSTER_MIN_H, freeA) / ratio);
+  const floorA = Math.max(POSTER_MIN_H, POSTER_VH_FLOOR * vh);
+  // Height first in this arrangement, and rounded once. Deriving the height
+  // from a rounded width let a one-pixel-taller viewport make the poster two
+  // pixels taller, which is enough to push Download back below a fold it had
+  // just cleared — the 1 px sweep caught exactly that at 320x700 and 375x700.
+  let hA = Math.min(Math.round(capA * ratio), Math.max(1, Math.floor(Math.max(floorA, freeA))));
+  let wA = Math.min(capA, Math.max(1, Math.round(hA / ratio)));
 
-  // B: poster beside the masthead and controls.
+  // B: poster beside the masthead and controls. Width binds here, and the
+  // controls never sit under the poster, so the fold does not depend on it.
   const colB = Math.min(SIDE_COL, Math.max(1, vw - 2 * PAD));
   setArrangement('lay-side', colB);
   const freeWB = vw - 2 * PAD - COL_GAP - colB - BORDER;
   const freeHB = vh - 2 * PAD - BORDER;
-  let wB = Math.min(freeWB, freeHB / ratio);
+  let wB = Math.floor(Math.max(0, Math.min(freeWB, freeHB / ratio)));
+  let hB = Math.max(0, Math.round(wB * ratio));
   // B is only offered when it also holds its own controls without scrolling;
   // otherwise it is A with a smaller poster, which is not an improvement.
-  if (chromeHeight() + 2 * PAD + ROW_GAP > vh) wB = 0;
+  if (chromeHeight() + 2 * PAD + ROW_GAP > vh) { wB = 0; hB = 0; }
 
-  wA = Math.floor(Math.max(1, wA));
-  wB = Math.floor(Math.max(0, wB));
-  const side = wB > wA;
-  const w = side ? wB : wA;
-  const h = Math.max(1, Math.round(w * ratio));
+  const side = wB * hB > wA * hA;
+  const w = Math.max(1, side ? wB : wA);
+  const h = Math.max(1, side ? hB : hA);
 
   if (side) setArrangement('lay-side', colB);
   else setArrangement('lay-stack', colA);
