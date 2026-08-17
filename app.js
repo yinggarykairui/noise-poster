@@ -574,11 +574,12 @@ function renderPreview() {
     if (!ctx) throw new Error('no 2d context');
     drawPoster(ctx, W, H, state.seed, state.palette,
       Math.round(CAPTION_MIN_CSS_PX * scale));
-    if (els.note.textContent === RENDER_FAIL) setNote('');
+    // The render worked, so retract our own message if it is the one up.
+    if (noteRank === NOTE_RENDER_FAIL) noteWrite(NOTE_RENDER_FAIL, '');
   } catch (err) {
     // An ImageData allocation or a missing context must not escape and leave
     // the sheet blank with nothing said and the URL never written.
-    setNote(RENDER_FAIL);
+    noteWrite(NOTE_RENDER_FAIL, RENDER_FAIL);
   }
   els.canvas.setAttribute('aria-label',
     'Noise poster, seed ' + state.seed + ', palette ' + state.palette);
@@ -589,32 +590,62 @@ const EXPORT_FAIL = 'Export failed on this device';
 
 /* ---- the status line ------------------------------------------------------
    #export-note is role="status": the page's only screen-reader voice, and the
-   only thing on it that speaks without being asked. It carries three unrelated
-   messages, so it gets one ownership rule, written down here:
+   only thing on it that speaks without being asked. Three unrelated things want
+   to write it, so it has one ownership rule, and the rule is enforced here
+   rather than by each writer remembering it:
 
-     The line describes the poster that is on screen right now, and nothing
-     else. Every change of poster clears it first (apply() does that, before
-     the render), and only the thing that caused that change may then write it.
-     So: a render failure is written by renderPreview, an export failure by
-     onDownload, and the new seed by Shuffle — and all three are gone the
-     moment the poster they describe is gone.
+     1. The line describes the poster that is on screen right now. Every change
+        of poster resets it (noteReset(), called by apply() before the render)
+        and bumps an epoch.
+     2. A writer that started before that change may not write after it. Async
+        writers carry the epoch they started in; if it has moved on, they are
+        describing a poster that is gone, and they are declined.
+     3. When two messages are true at once, the more serious one wins, and the
+        order is the same for every writer:
+           a dead render  >  a failed export  >  the new seed from Shuffle.
+        A writer may always retract its own message, and may always replace it.
 
-   The rule exists because the Shuffle announcement outlived its poster: it
-   survived a typed seed, a palette click, a pasted hash and ten seconds, and
-   went on naming a seed that was no longer anywhere on the page. */
+   Both halves exist because of measured bugs. Without (1) and (2) a Shuffle
+   announcement outlived the poster it named, and a 1.2 s export failure landed
+   on top of a later, true announcement and pinned a failure to a sheet that was
+   never exported. Without (3) the export failure hid a still-dead preview,
+   while the Shuffle path deferred to it correctly — the same precedence
+   implemented twice, once. */
 
-/** Write the status line. Returns true if the text actually changed, so the
-    caller can re-measure the layout — a long line can wrap and make the
-    controls taller. Never re-measures by itself: apply() already does. */
-function setNote(text) {
+const NOTE_NONE = 0;
+const NOTE_SEED = 1;
+const NOTE_EXPORT_FAIL = 2;
+const NOTE_RENDER_FAIL = 3;
+
+let noteRank = NOTE_NONE;
+let posterEpoch = 0;
+
+/** Rule 1: the poster changed, so nothing said about the old one is still ours. */
+function noteReset() {
+  posterEpoch++;
+  els.note.textContent = '';
+  noteRank = NOTE_NONE;
+}
+
+/**
+ * The only way to write the line. Returns true if it wrote.
+ * `epoch` is the value posterEpoch had when the caller began; omit it for
+ * synchronous writers, which cannot be stale. To retract, pass your own rank
+ * and an empty string — that is what "a writer may retract its own message"
+ * means here, and it is why the rank test is >=, not >.
+ */
+function noteWrite(rank, text, epoch) {
+  if (epoch !== undefined && epoch !== posterEpoch) return false;   // rule 2
+  if (rank < noteRank) return false;                                // rule 3
+  noteRank = text === '' ? NOTE_NONE : rank;
   if (els.note.textContent === text) return false;
   els.note.textContent = text;
   return true;
 }
 
-/** setNote for callers outside apply(), which must pick up a height change. */
-function setNoteAndFit(text) {
-  if (setNote(text) && relayout()) renderPreview();
+/** noteWrite for callers outside apply(), which must pick up a height change. */
+function noteWriteAndFit(rank, text, epoch) {
+  if (noteWrite(rank, text, epoch) && relayout()) renderPreview();
 }
 
 /* Write into the seed field only when the field is not already describing the
@@ -693,7 +724,7 @@ function apply(next, opts) {
   syncControls();
   // The poster is about to change, so whatever the status line said about the
   // old one stops being true here. renderPreview may write it again.
-  setNote('');
+  noteReset();
   relayout();
   renderPreview();
   if (!opts || opts.writeHash !== false) writeHash();
@@ -794,12 +825,18 @@ async function onDownload() {
   const snap = { seed: takePendingSeed(), palette: state.palette };
   if (snap.seed !== state.seed) apply({ seed: snap.seed, palette: snap.palette });
 
+  // The epoch this export belongs to. toBlob can take ~1.2 s, and a Shuffle in
+  // the meantime hands the line to a different poster; if that happens, this
+  // export's verdict is about a sheet that is no longer on screen and must not
+  // be written. Taken after the apply() above, which itself bumps the epoch.
+  const epoch = posterEpoch;
+
   els.download.disabled = true;
   els.download.textContent = 'Rendering…';
-  // Only this function's own verdict is dropped on a retry: the line belongs to
-  // whatever last described the current poster, and an export is not a change
-  // of poster.
-  if (els.note.textContent === EXPORT_FAIL) setNoteAndFit('');
+  // A writer may retract its own message: this is a fresh attempt, so last
+  // attempt's verdict goes. An export is not a change of poster, so nothing
+  // else on the line is touched.
+  if (noteRank === NOTE_EXPORT_FAIL) noteWriteAndFit(NOTE_EXPORT_FAIL, '');
   await nextPaint();
 
   let url = '';
@@ -822,7 +859,7 @@ async function onDownload() {
     a.click();
     a.remove();
   } catch (err) {
-    setNoteAndFit(EXPORT_FAIL);
+    noteWriteAndFit(NOTE_EXPORT_FAIL, EXPORT_FAIL, epoch);
   } finally {
     // Revoke on the next task, not inside the click's own turn: the download is
     // started during click dispatch, and revoking synchronously can cancel it.
@@ -854,9 +891,8 @@ function init() {
     // live region — so say the new seed through the status line that is
     // already on the page. A palette change announces itself via aria-pressed.
     // Not over a render failure: that message is the truer one.
-    // apply() has just cleared the line; only a render failure may still be
-    // there, and that message outranks this one.
-    if (els.note.textContent !== RENDER_FAIL) setNoteAndFit('Seed: ' + seed);
+    // No bespoke check: noteWrite already knows a dead render outranks this.
+    noteWriteAndFit(NOTE_SEED, 'Seed: ' + seed);
   });
   els.download.addEventListener('click', onDownload);
   window.addEventListener('hashchange', onHashChange);
