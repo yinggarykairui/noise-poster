@@ -340,7 +340,6 @@ function canonicalHash(seed, palette) {
 const state = { seed: DEFAULT_SEED, palette: DEFAULT_PALETTE };
 const els = {};
 let seedTimer = 0;
-let selfHash = '';     // the hash this page last wrote, to tell it from a paste
 
 function renderPreview() {
   const cssW = els.canvas.clientWidth;
@@ -372,7 +371,6 @@ function syncControls() {
 function writeHash() {
   const hash = canonicalHash(state.seed, state.palette);
   if (location.hash === hash) return;
-  selfHash = hash;
   try {
     history.replaceState(null, '', hash);
   } catch (err) {
@@ -397,9 +395,15 @@ function onSeedInput() {
   }, 200);
 }
 
+/* Compare the hash against the state it would produce, never against a
+   remembered "this one was mine" string: a hash the page wrote is a hash the
+   user can navigate back to, so remembering it makes Back a no-op and leaves
+   the whole UI describing a poster that is no longer on screen. */
 function onHashChange() {
-  if (location.hash === selfHash) return;
-  apply(parseHash(location.hash));
+  const next = parseHash(location.hash);
+  if (next.seed === state.seed && next.palette === state.palette &&
+      location.hash === canonicalHash(state.seed, state.palette)) return;
+  apply(next);
 }
 
 function buildSwatches() {
