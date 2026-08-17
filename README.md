@@ -8,20 +8,17 @@ A page that draws an abstract poster from layered value noise — the seed is in
 
 ## What it does
 
-A poster is already drawn when the page opens: type a seed, or press **Shuffle**
-for a new one, pick one of five palettes — `ink`, `rust`, `moss`, `dusk`,
-`bone` — and press **Download PNG** for a 2480 × 3508 file, which is A4 at
-300 DPI. The picture is five octaves of value noise flattened into flat tone
-bands; measured over 1,000 seeds on this build, a sheet paints 5, 6, 7 or 8
-distinct tones and never fewer. Everything but the palette comes from the seed
-string, cut to 64 code points — one 👍🏽 is two of them — and the seed is set in
-small type along the bottom margin, so a printed sheet says how to make it
-again. The preview and the export are the same composition rather than the same
-pixels: the paper grain is the one term drawn per device pixel, so the preview
-is not a pixel-exact proof of the file. The address bar holds the seed and the
-palette, percent-encoded — the default poster is `#s=north%20light&p=ink` — so
-sending the link sends the poster, and a hash that is broken or half-typed falls
-back to that default instead of failing.
+A poster is already drawn when the page opens: type a seed or press **Shuffle**,
+pick one of five palettes (`ink`, `rust`, `moss`, `dusk`, `bone`), and press
+**Download PNG** for a 2480 × 3508 file — A4 at 300 DPI. The picture is five
+octaves of value noise flattened into flat tone bands; over 1,000 seeds this
+build painted 5, 6, 7 or 8 distinct tones and never fewer. The seed decides
+everything but the palette, is cut to 64 code points (one 👍🏽 is two of them),
+and is set small in the bottom margin, so a printed sheet says how to make it
+again. Only the paper grain is drawn per device pixel, so the preview is the
+export's composition but not its pixels. The address bar holds
+`#s=north%20light&p=ink`, percent-encoded, so sending the link sends the poster;
+a broken or half-typed hash falls back to that default.
 
 ## How to run
 
