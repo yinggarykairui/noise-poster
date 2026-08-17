@@ -379,6 +379,14 @@ function slugify(seed) {
   return (s === '' ? 'seed' : s) + '-' + hashSeed(seed).toString(16).padStart(8, '0');
 }
 
+/** The file's whole name. The seed slug alone is not enough: the palette is
+    half of what the sheet is, so north light on ink and north light on rust are
+    two different 2480x3508 images that both used to land on
+    noise-poster-north-light.png and get told apart by the browser's ' (1)'. */
+function exportFilename(seed, paletteId) {
+  return 'noise-poster-' + slugify(seed) + '-' + paletteId + '.png';
+}
+
 /* ---- hash ----------------------------------------------------------------- */
 
 /**
@@ -809,7 +817,7 @@ async function onDownload() {
     url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'noise-poster-' + slugify(snap.seed) + '.png';
+    a.download = exportFilename(snap.seed, snap.palette);
     document.body.appendChild(a);
     a.click();
     a.remove();
