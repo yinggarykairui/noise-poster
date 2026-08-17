@@ -1,21 +1,30 @@
-/* noise-poster — one narrow column, paper-coloured page.
-   Two layout constraints worth stating:
+/* noise-poster — a sheet of paper lying on a slightly darker table.
+   Layout constraints worth stating:
    - min-height, never height/100dvh: when the viewport is shorter than the
      layout the page must fall back to ordinary document scrolling instead of
      collapsing a box to zero.
-   - no scroller has a percentage floor; the poster is sized by aspect-ratio
-     off its own width, so nothing depends on viewport height. */
+   - no scroller has a percentage floor, and there is no media query: the two
+     arrangements below are both laid out on every resize and the one that
+     gives the poster more area wins (app.js, relayout()).
+   - every type size is in rem, so a large default font size actually enlarges
+     the page instead of being overridden by an absolute px on body. */
 
 :root {
-  /* Overwritten by app.js with stop 0 of the active palette. The literal here
-     is the `ink` stop 0, so the page is paper-coloured before scripts run. */
-  --paper: #f2efe9;
-  --ink: #1b2126;
-  --line: rgba(27, 33, 38, 0.28);
-  --focus: #1b2126;
+  /* Overwritten by app.js from the active palette. The literals are the `ink`
+     palette, so the page is dressed before scripts run. */
+  --paper: #f2efe9;      /* stop 0 — the sheet, and the poster's own margins */
+  --page: #dcdad3;       /* a shade darker than the paper: the table */
+  --ink: #1b2126;        /* stop 3 — text and the primary button */
+  --line: #535f6a;       /* stop 2 — every interactive boundary */
+  --muted: #414c56;      /* secondary text, measured against --page */
+  --wash: #dfdcd6;       /* hover tint */
+  --ink-hover: #2c353c;
+  --shadow: rgba(27, 33, 38, 0.22);
 }
 
 * { box-sizing: border-box; }
+
+html { font-size: 100%; }
 
 html, body {
   margin: 0;
@@ -26,63 +35,96 @@ body {
   /* min-height, never height: if the viewport is shorter than the layout the
      page falls back to ordinary document scrolling instead of clipping. */
   min-height: 100vh;
-  background: var(--paper);
+  background: var(--page);
   color: var(--ink);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.45;
   -webkit-text-size-adjust: 100%;
 }
 
-.column {
-  max-width: 440px;
-  margin: 0 auto;
-  padding: 16px 16px 48px;
+/* ---- the two arrangements ------------------------------------------------
+   --col is the controls column, written by app.js after it has measured. */
+
+.page {
+  display: grid;
+  padding: 16px;
+  column-gap: 16px;
+  row-gap: 14px;
+  justify-content: center;
+  align-content: start;
 }
 
-.masthead { margin: 0 0 14px; }
+.page.lay-stack {
+  grid-template-columns: var(--col, 440px);
+  grid-template-areas:
+    "head"
+    "sheet"
+    "ctl";
+}
+
+.page.lay-side {
+  grid-template-columns: max-content var(--col, 280px);
+  grid-template-areas:
+    "sheet head"
+    "sheet ctl";
+}
+
+/* align-self: start, so neither box is stretched by the poster spanning both
+   rows beside it — a stretched box measures the poster, not itself. */
+.masthead { grid-area: head; margin: 0; align-self: start; }
+.sheet { grid-area: sheet; min-width: 0; align-self: start; }
+.controls { grid-area: ctl; min-width: 0; align-self: start; }
 
 h1 {
   margin: 0;
-  font-size: 15px;
+  font-size: 0.95rem;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
 
 .tagline {
   margin: 2px 0 0;
-  font-size: 13px;
-  opacity: 0.72;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
+
+/* ---- the sheet -----------------------------------------------------------
+   content-box, because app.js writes the content width and height in px and
+   the canvas backing store is derived from clientWidth/clientHeight — the two
+   must not disagree by the border. */
 
 .poster {
   display: block;
+  box-sizing: content-box;
   width: 100%;
   aspect-ratio: 2480 / 3508;
   border: 1px solid var(--line);
-  /* The backing store is set in JS; this keeps the box stable meanwhile. */
   background: var(--paper);
+  /* The sheet lies on the page rather than being cut out of it. */
+  box-shadow: 0 3px 12px var(--shadow);
 }
 
-.controls { margin-top: 16px; }
+/* ---- controls ------------------------------------------------------------ */
 
 .row {
   display: flex;
+  flex-wrap: wrap;          /* at 200% zoom the row must wrap, not overflow */
   align-items: flex-end;
   gap: 8px;
 }
 
 .field {
-  flex: 1 1 auto;
+  flex: 1 1 120px;
   min-width: 0;
 }
 
 label, .group-label {
   display: block;
-  font-size: 12px;
+  font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.7;
+  color: var(--muted);
   margin-bottom: 4px;
 }
 
@@ -91,9 +133,9 @@ input[type="text"] {
   min-height: 44px;
   padding: 8px 10px;
   font: inherit;
-  font-size: 16px; /* 16px stops iOS Safari zooming the page on focus. */
+  font-size: 1rem;   /* >= 16px at the default root size: iOS will not zoom */
   color: var(--ink);
-  background: transparent;
+  background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 2px;
 }
@@ -101,33 +143,42 @@ input[type="text"] {
 button {
   font: inherit;
   color: var(--ink);
-  background: transparent;
+  background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 2px;
   cursor: pointer;
-  /* Every control keeps a 44x44 CSS px hit box at 320px wide. */
+  /* Every control keeps a 44x44 CSS px hit box at 320 px wide. */
   min-height: 44px;
   min-width: 44px;
+  transition: background-color 120ms ease, border-color 120ms ease,
+              box-shadow 120ms ease, color 120ms ease;
 }
+
+input[type="text"] { transition: border-color 120ms ease, box-shadow 120ms ease; }
+
+button:hover:not([disabled]) { background: var(--wash); }
+button:active:not([disabled]) { background: var(--wash); box-shadow: inset 0 2px 0 var(--shadow); }
+input[type="text"]:hover { border-color: var(--ink); }
 
 #shuffle {
   flex: 0 0 auto;
   padding: 0 14px;
-  font-size: 15px;
+  font-size: 0.95rem;
 }
 
 .palette { margin-top: 14px; }
 
 .swatches {
   display: flex;
+  flex-wrap: wrap;          /* zoomed in, the five swatches wrap onto rows */
   gap: 8px;
 }
 
 .swatch {
-  flex: 1 1 0;
+  flex: 1 1 44px;
   min-width: 44px;
   min-height: 44px;
-  padding: 0 0 3px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -143,14 +194,21 @@ button {
 }
 
 .swatch .name {
-  font-size: 11px;
+  font-size: 0.7rem;
   letter-spacing: 0.03em;
   text-align: center;
+  padding: 1px 0 3px;
 }
 
+/* Selected is a filled name plate; focus (below) is a detached ring. The two
+   states used to be the same black rectangle. */
 .swatch[aria-pressed="true"] {
   border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.swatch[aria-pressed="true"] .name {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .download {
@@ -158,9 +216,16 @@ button {
   width: 100%;
   margin-top: 16px;
   padding: 10px;
-  font-size: 15px;
+  font-size: 0.95rem;
   letter-spacing: 0.02em;
+  /* The one primary action on the page: filled, not outlined like the rest. */
+  color: var(--paper);
+  background: var(--ink);
+  border-color: var(--ink);
 }
+
+.download:hover:not([disabled]) { background: var(--ink-hover); border-color: var(--ink-hover); }
+.download:active:not([disabled]) { background: var(--ink-hover); }
 
 button[disabled] {
   opacity: 0.55;
@@ -169,10 +234,20 @@ button[disabled] {
 
 .export-note {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: 0.82rem;
+  /* One line reserved so the status region does not shove the layout when it
+     speaks. A floor only: longer text grows the box, it is never clipped. */
+  min-height: 1.45em;
+  color: var(--muted);
 }
 
+/* A ring outside the control, with a gap, in the ink colour — visibly not the
+   filled name plate that marks the selected swatch. */
 :focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 3px solid var(--ink);
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
 }

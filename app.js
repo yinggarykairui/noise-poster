@@ -139,6 +139,19 @@ function parseHex(hex) {
   ];
 }
 
+function rgbCss(c) {
+  return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+}
+
+/** Blend two parsed stops, t = 0 gives a. Used only for the page chrome. */
+function mixStops(a, b, t) {
+  return rgbCss([
+    Math.round(a[0] + (b[0] - a[0]) * t),
+    Math.round(a[1] + (b[1] - a[1]) * t),
+    Math.round(a[2] + (b[2] - a[2]) * t)
+  ]);
+}
+
 /** Look up q in [0,1] on a four-stop ramp at 0, 1/3, 2/3, 1. */
 function rampAt(stops, q) {
   const i = Math.min(2, Math.floor(q * 3));
@@ -389,27 +402,116 @@ const state = { seed: DEFAULT_SEED, palette: DEFAULT_PALETTE };
 const els = {};
 let seedTimer = 0;
 
-function renderPreview() {
-  const cssW = els.canvas.clientWidth;
-  if (cssW <= 0) return;
-  // Backing store is capped at 2x: past that the grain is invisible and the
-  // fill cost is not.
+/* ---- layout ---------------------------------------------------------------
+   There is no breakpoint here on purpose. A breakpoint is a guess about which
+   arrangement gives the poster more room, and a guess checked at two widths is
+   a cliff at every other one. Both arrangements are laid out on every resize,
+   the poster each would get is measured, and the larger one is kept. */
+
+const PAD = 16;              // .page padding, must match style.css
+const COL_GAP = 16;
+const ROW_GAP = 14;
+const STACK_MAX = 440;       // the one-column cap the spec names
+const SIDE_COL = 280;        // controls column when the poster is beside them
+const POSTER_MIN_H = 200;    // below this the sheet stops being a picture
+const BORDER = 2;            // .poster's 1 px border, both sides
+
+function setArrangement(cls, col) {
+  els.page.className = 'page ' + cls;
+  els.page.style.setProperty('--col', col + 'px');
+}
+
+/** Height of everything in the controls column, measured (never assumed). */
+function chromeHeight() {
+  return els.masthead.offsetHeight + els.controls.offsetHeight;
+}
+
+/**
+ * Lay both arrangements out, measure, keep the larger poster. Writes the
+ * canvas's CSS content box. Returns true when the backing store must be
+ * rebuilt, so the caller can decide whether a redraw is needed.
+ */
+function relayout() {
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  const ratio = EXPORT_H / EXPORT_W;
+
+  // Collapse the canvas before measuring. In the side arrangement it spans both
+  // grid rows, so its previous height stretches the rows the masthead and the
+  // controls sit in and chromeHeight() would measure the poster it is about to
+  // replace: at 844x390, arriving from 390x844, that read 472 px of chrome
+  // instead of 297 and cost the poster 110 px of width.
+  els.canvas.style.width = '0px';
+  els.canvas.style.height = '0px';
+
+  // A: one column, masthead over poster over controls.
+  const colA = Math.max(1, Math.min(vw - 2 * PAD, STACK_MAX));
+  setArrangement('lay-stack', colA);
+  const freeA = vh - 2 * PAD - chromeHeight() - 2 * ROW_GAP - BORDER;
+  const capA = colA - BORDER;
+  let wA = Math.min(capA, Math.max(POSTER_MIN_H, freeA) / ratio);
+
+  // B: poster beside the masthead and controls.
+  const colB = Math.min(SIDE_COL, Math.max(1, vw - 2 * PAD));
+  setArrangement('lay-side', colB);
+  const freeWB = vw - 2 * PAD - COL_GAP - colB - BORDER;
+  const freeHB = vh - 2 * PAD - BORDER;
+  let wB = Math.min(freeWB, freeHB / ratio);
+  // B is only offered when it also holds its own controls without scrolling;
+  // otherwise it is A with a smaller poster, which is not an improvement.
+  if (chromeHeight() + 2 * PAD + ROW_GAP > vh) wB = 0;
+
+  wA = Math.floor(Math.max(1, wA));
+  wB = Math.floor(Math.max(0, wB));
+  const side = wB > wA;
+  const w = side ? wB : wA;
+  const h = Math.max(1, Math.round(w * ratio));
+
+  if (side) setArrangement('lay-side', colB);
+  else setArrangement('lay-stack', colA);
+  els.canvas.style.width = w + 'px';
+  els.canvas.style.height = h + 'px';
+
   const scale = Math.min(window.devicePixelRatio || 1, 2);
-  const W = Math.max(1, Math.round(cssW * scale));
-  const H = Math.round(W * EXPORT_H / EXPORT_W);
+  const bw = Math.max(1, Math.round(els.canvas.clientWidth * scale));
+  const bh = Math.max(1, Math.round(els.canvas.clientHeight * scale));
+  return els.canvas.width !== bw || els.canvas.height !== bh;
+}
+
+function renderPreview() {
+  // Backing store is capped at 2x: past that the grain is invisible and the
+  // fill cost is not. Both dimensions come from the laid-out box, so the
+  // backing store is never a device pixel shorter than the box it fills.
+  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  const W = Math.max(1, Math.round(els.canvas.clientWidth * scale));
+  const H = Math.max(1, Math.round(els.canvas.clientHeight * scale));
   if (els.canvas.width !== W || els.canvas.height !== H) {
     els.canvas.width = W;
     els.canvas.height = H;
   }
-  drawPoster(els.canvas.getContext('2d'), W, H, state.seed, state.palette);
+  try {
+    const ctx = els.canvas.getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    drawPoster(ctx, W, H, state.seed, state.palette);
+    if (els.note.textContent === RENDER_FAIL) setNote('');
+  } catch (err) {
+    // An ImageData allocation or a missing context must not escape and leave
+    // the sheet blank with nothing said and the URL never written.
+    setNote(RENDER_FAIL);
+  }
   els.canvas.setAttribute('aria-label',
     'Noise poster, seed ' + state.seed + ', palette ' + state.palette);
 }
 
+const RENDER_FAIL = 'This browser could not draw the poster';
+
 /** The one status line under the controls: role="status", so writing it is
-    also how anything on this page speaks to a screen reader. */
+    also how anything on this page speaks to a screen reader. A long line can
+    wrap and make the controls taller, so the layout is re-measured after. */
 function setNote(text) {
-  if (els.note.textContent !== text) els.note.textContent = text;
+  if (els.note.textContent === text) return;
+  els.note.textContent = text;
+  if (relayout()) renderPreview();
 }
 
 /* Write into the seed field only when the field is not already describing the
@@ -446,9 +548,29 @@ function syncControls() {
   for (const btn of els.swatches) {
     btn.setAttribute('aria-pressed', String(btn.dataset.palette === state.palette));
   }
-  document.documentElement.style.setProperty('--paper', PALETTES[state.palette][0]);
-  document.documentElement.style.setProperty('--ink', PALETTES[state.palette][3]);
-  document.documentElement.style.setProperty('--focus', PALETTES[state.palette][3]);
+  paintChrome(state.palette);
+}
+
+/* The page's own colours, all derived from the active palette so there is one
+   source of truth. Two of them exist because of measurements:
+   --page is a shade darker than the paper, so the sheet's own margins stop
+   being byte-identical to the page behind them (they measured 1.00:1), and
+   --line is stop 2 rather than a 28%-alpha ink, because that alpha composited
+   to 1.79:1 against the paper and WCAG 1.4.11 asks for 3:1. */
+function paintChrome(paletteId) {
+  const s = PALETTES[paletteId].map(parseHex);
+  const root = document.documentElement.style;
+  root.setProperty('--paper', rgbCss(s[0]));
+  root.setProperty('--ink', rgbCss(s[3]));
+  root.setProperty('--line', rgbCss(s[2]));
+  // Secondary text. Not stop 2 (that measured 3.46:1 against the page on rust)
+  // and not a 0.7 alpha of the ink (that was the 5.61:1 the old build shipped):
+  // this measures 6.24:1 at worst, over the darker page, on every palette.
+  root.setProperty('--muted', mixStops(s[3], s[2], 0.3));
+  root.setProperty('--page', mixStops(s[0], s[1], 0.34));
+  root.setProperty('--wash', mixStops(s[0], s[3], 0.09));
+  root.setProperty('--ink-hover', mixStops(s[3], s[2], 0.28));
+  root.setProperty('--shadow', 'rgba(' + s[3][0] + ',' + s[3][1] + ',' + s[3][2] + ',0.22)');
 }
 
 function writeHash() {
@@ -466,6 +588,7 @@ function apply(next, opts) {
   state.seed = next.seed;
   state.palette = next.palette;
   syncControls();
+  relayout();
   renderPreview();
   if (!opts || opts.writeHash !== false) writeHash();
 }
@@ -601,6 +724,9 @@ async function onDownload() {
 }
 
 function init() {
+  els.page = document.getElementById('page');
+  els.masthead = document.querySelector('.masthead');
+  els.controls = document.querySelector('.controls');
   els.canvas = document.getElementById('poster');
   els.seed = document.getElementById('seed');
   els.shuffle = document.getElementById('shuffle');
@@ -613,18 +739,22 @@ function init() {
   els.seed.addEventListener('input', onSeedInput);
   els.shuffle.addEventListener('click', () => {
     takePendingSeed();      // Shuffle replaces the seed, so drop a pending commit
-    apply({ seed: randomSeed(), palette: state.palette });
+    const seed = randomSeed();
+    apply({ seed: seed, palette: state.palette });
+    // Shuffle changes the canvas and nothing else, and a canvas label is not a
+    // live region — so say the new seed through the status line that is
+    // already on the page. A palette change announces itself via aria-pressed.
+    setNote('Seed: ' + seed);
   });
   els.download.addEventListener('click', onDownload);
   window.addEventListener('hashchange', onHashChange);
 
-  // Re-render only when the backing store would actually change size.
+  // Re-lay out on every resize; re-render only when the backing store changes.
   let resizeTimer = 0;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      const scale = Math.min(window.devicePixelRatio || 1, 2);
-      if (Math.round(els.canvas.clientWidth * scale) !== els.canvas.width) renderPreview();
+      if (relayout()) renderPreview();
     }, 150);
   });
 
