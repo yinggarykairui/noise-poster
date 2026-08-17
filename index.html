@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>noise-poster</title>
+<meta name="description" content="A page that draws an abstract poster from layered value noise — the seed is in the URL, so any poster comes back, and the PNG export is A4 at 300 DPI.">
+<link rel="stylesheet" href="style.css">
+<!-- defer: app.js runs before DOMContentLoaded fires, and it does all of its
+     work from that event, so no hash parsing happens at module scope. -->
+<script src="app.js" defer></script>
+</head>
+<body>
+<main class="column">
+  <header class="masthead">
+    <h1>noise-poster</h1>
+    <p class="tagline">A poster made of layered noise. The seed is in the link.</p>
+  </header>
+
+  <!-- The sheet is drawn before any control is touched. aspect-ratio holds the
+       A4 portrait box so the preview never reflows while the canvas is sized. -->
+  <canvas id="poster" class="poster" role="img" aria-label="Generated noise poster"></canvas>
+
+  <div class="controls">
+    <div class="row">
+      <div class="field">
+        <label for="seed">Seed</label>
+        <input id="seed" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <button id="shuffle" type="button">Shuffle</button>
+    </div>
+
+    <div class="palette" role="group" aria-labelledby="palette-label">
+      <span id="palette-label" class="group-label">Palette</span>
+      <div id="swatches" class="swatches"></div>
+    </div>
+
+    <button id="download" type="button" class="download">Download PNG</button>
+    <p id="export-note" class="export-note" role="status"></p>
+  </div>
+</main>
+</body>
+</html>
