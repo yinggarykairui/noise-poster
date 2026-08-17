@@ -431,6 +431,58 @@ function buildSwatches() {
   });
 }
 
+/* ---- export ---------------------------------------------------------------
+   2480 x 3508 = 8,699,840 px, 51.9% of iOS Safari's 16,777,216 px canvas-area
+   ceiling, and the long side 3508 is under the 4096 px per-side limit - so this
+   is inside the envelope where a canvas over the ceiling silently returns a
+   transparent image. The size is still checked on the way out rather than
+   trusted. */
+
+/** Let the browser paint the disabled 'Rendering…' state before the main
+    thread is blocked by an 8.7-megapixel fill. */
+function nextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+async function onDownload() {
+  const label = els.download.textContent;
+  els.download.disabled = true;
+  els.download.textContent = 'Rendering…';
+  els.note.textContent = '';
+  await nextPaint();
+
+  let url = '';
+  try {
+    const off = document.createElement('canvas');   // detached, never in the DOM
+    off.width = EXPORT_W;
+    off.height = EXPORT_H;
+    drawPoster(off.getContext('2d'), EXPORT_W, EXPORT_H, state.seed, state.palette);
+
+    const blob = await new Promise((resolve) => off.toBlob(resolve, 'image/png'));
+    // A null blob, or one under 1 KB, is the silent all-transparent failure a
+    // canvas over the device ceiling produces. Never fail as a no-op.
+    if (!blob || blob.size < 1024) throw new Error('empty blob');
+
+    url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'noise-poster-' + slugify(state.seed) + '.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (err) {
+    els.note.textContent = 'Export failed on this device';
+  } finally {
+    // Revoke on the next task, not inside the click's own turn: the download is
+    // started during click dispatch, and revoking synchronously can cancel it.
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 0);
+    els.download.disabled = false;
+    els.download.textContent = label;
+  }
+}
+
 function init() {
   els.canvas = document.getElementById('poster');
   els.seed = document.getElementById('seed');
@@ -445,6 +497,7 @@ function init() {
   els.shuffle.addEventListener('click', () => {
     apply({ seed: randomSeed(), palette: state.palette });
   });
+  els.download.addEventListener('click', onDownload);
   window.addEventListener('hashchange', onHashChange);
 
   // Re-render only when the backing store would actually change size.
