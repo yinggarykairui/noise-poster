@@ -237,8 +237,13 @@ function displaySeed(seed, seed32) {
  * Draw the whole sheet into ctx at W x H. Pure in the seed: the only term that
  * reads a device pixel index is the grain.
  */
-function drawPoster(ctx, W, H, seed, paletteId) {
+function drawPoster(ctx, W, H, seed, paletteId, minCaptionPx) {
   const L = layout(W, H);
+  // The caption is H/110, which is 32 px on the 3508 px export and 3 px on a
+  // 366 px phone preview — a smudge, on the one element the tagline promises is
+  // on the sheet. The preview passes a floor in device pixels; the export
+  // passes nothing, because its own size is already twelve times the floor.
+  if (minCaptionPx > L.fontPx) L.fontPx = minCaptionPx;
   const seed32 = hashSeed(seed);
   const stops = PALETTES[paletteId].map(parseHex);
 
@@ -455,6 +460,27 @@ const POSTER_MIN_H = 200;    // below this the sheet stops being a picture
    control stack. It is a floor, not a cap: whenever the space actually
    available is larger, the space wins. */
 const POSTER_VH_FLOOR = 0.55;
+
+/* Smallest caption the preview will draw, in CSS pixels. See drawPoster(). */
+const CAPTION_MIN_CSS_PX = 6;
+
+/* Backing-store budget for the preview, in device pixels. drawPoster is one
+   synchronous typed-array fill, so the backing store is the whole cost: the
+   side-by-side arrangement on a 2560x1400 retina desktop asked for 5.27 Mpx and
+   blocked the main thread for 502 ms per Shuffle. Capping the store rather than
+   the sheet keeps the poster's CSS size where relayout() put it and spends
+   fewer device pixels on it. Never below 1 device pixel per CSS pixel, so the
+   preview is never upscaled. */
+const MAX_BACKING_PX = 1300000;
+
+/** Device pixels per CSS pixel for the preview: DPR, capped at 2 (past that the
+    grain is invisible and the fill cost is not), then capped by the budget. */
+function previewScale(cssW, cssH) {
+  const area = Math.max(1, cssW * cssH);
+  let s = Math.min(window.devicePixelRatio || 1, 2);
+  if (area * s * s > MAX_BACKING_PX) s = Math.max(1, Math.sqrt(MAX_BACKING_PX / area));
+  return s;
+}
 const BORDER = 2;            // .poster's 1 px border, both sides
 
 function setArrangement(cls, col) {
@@ -519,17 +545,16 @@ function relayout() {
   els.canvas.style.width = w + 'px';
   els.canvas.style.height = h + 'px';
 
-  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  const scale = previewScale(els.canvas.clientWidth, els.canvas.clientHeight);
   const bw = Math.max(1, Math.round(els.canvas.clientWidth * scale));
   const bh = Math.max(1, Math.round(els.canvas.clientHeight * scale));
   return els.canvas.width !== bw || els.canvas.height !== bh;
 }
 
 function renderPreview() {
-  // Backing store is capped at 2x: past that the grain is invisible and the
-  // fill cost is not. Both dimensions come from the laid-out box, so the
-  // backing store is never a device pixel shorter than the box it fills.
-  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  // Both dimensions come from the laid-out box, so the backing store is never a
+  // device pixel shorter than the box it fills.
+  const scale = previewScale(els.canvas.clientWidth, els.canvas.clientHeight);
   const W = Math.max(1, Math.round(els.canvas.clientWidth * scale));
   const H = Math.max(1, Math.round(els.canvas.clientHeight * scale));
   if (els.canvas.width !== W || els.canvas.height !== H) {
@@ -539,7 +564,8 @@ function renderPreview() {
   try {
     const ctx = els.canvas.getContext('2d');
     if (!ctx) throw new Error('no 2d context');
-    drawPoster(ctx, W, H, state.seed, state.palette);
+    drawPoster(ctx, W, H, state.seed, state.palette,
+      Math.round(CAPTION_MIN_CSS_PX * scale));
     if (els.note.textContent === RENDER_FAIL) setNote('');
   } catch (err) {
     // An ImageData allocation or a missing context must not escape and leave
