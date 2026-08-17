@@ -65,6 +65,9 @@ body {
 
 .page.lay-side {
   grid-template-columns: max-content var(--col, 280px);
+  /* max-content then 1fr: the poster spanning both rows must lengthen the
+     second row, not the first, or the controls float away from the masthead. */
+  grid-template-rows: max-content 1fr;
   grid-template-areas:
     "sheet head"
     "sheet ctl";
@@ -73,7 +76,7 @@ body {
 /* align-self: start, so neither box is stretched by the poster spanning both
    rows beside it — a stretched box measures the poster, not itself. */
 .masthead { grid-area: head; margin: 0; align-self: start; }
-.sheet { grid-area: sheet; min-width: 0; align-self: start; }
+.sheet { grid-area: sheet; min-width: 0; align-self: start; display: flex; justify-content: center; }
 .controls { grid-area: ctl; min-width: 0; align-self: start; }
 
 h1 {
