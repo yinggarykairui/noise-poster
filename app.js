@@ -165,6 +165,16 @@ function rampAt(stops, q) {
   ];
 }
 
+/* The lightest band starts here on the ramp, not at 0. Stop 0 is the paper, and
+   the paper is what the sheet's own margins are filled with — so a band painted
+   in stop 0 makes the picture's rectangle dissolve wherever it touches the edge.
+   Measured on the build before this floor: paper-coloured pixels inside the
+   field ran 3.6-49.2% and up to 53.6% of the field's perimeter was gone.
+   0.15 puts the lightest band at 1.32-1.39:1 against the paper, i.e. a slightly
+   stronger edge than the 1.23-1.27:1 that already separates sheet from page,
+   and still leaves 7.54-10.22:1 from the lightest band to the darkest. */
+const RAMP_FLOOR = 0.15;
+
 /** Band count comes from the seed too: 5 to 8 flat tones. */
 function bandCount(seed32) {
   return 5 + ((seed32 >>> 8) % 4);
@@ -237,10 +247,12 @@ function drawPoster(ctx, W, H, seed, paletteId) {
   ctx.fillRect(0, 0, W, H);
 
   // q takes exactly B distinct values, so the ramp needs B lookups, not fw*fh.
+  // It spans [RAMP_FLOOR, 1], never [0, 1]: see RAMP_FLOOR — the picture has to
+  // keep its rectangle against the paper it is printed on.
   const B = bandCount(seed32);
   const band = new Uint8Array(B * 3);
   for (let b = 0; b < B; b++) {
-    const rgb = rampAt(stops, b / (B - 1));
+    const rgb = rampAt(stops, RAMP_FLOOR + (1 - RAMP_FLOOR) * (b / (B - 1)));
     band[b * 3] = rgb[0];
     band[b * 3 + 1] = rgb[1];
     band[b * 3 + 2] = rgb[2];
