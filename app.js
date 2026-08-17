@@ -280,16 +280,31 @@ function drawPoster(ctx, W, H, seed, paletteId) {
   drawCaption(ctx, W, L, seed, seed32, paletteId, stops[3]);
 }
 
+/* The caption may be set smaller than the palette name, down to this fraction
+   of it, before anything is cut. A 64-code-point CJK or emoji seed is far wider
+   than a 64-character Latin one, and the sheet's whole job is to carry the
+   string that reproduces it — so shrinking is always preferred to an ellipsis. */
+const CAPTION_MIN_SCALE = 0.55;
+
 /** The seed set small in the bottom margin, and the palette name opposite it. */
 function drawCaption(ctx, W, L, seed, seed32, paletteId, inkRgb) {
-  ctx.font = L.fontPx + 'px ' + CAPTION_FONT_STACK;
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'rgb(' + inkRgb[0] + ',' + inkRgb[1] + ',' + inkRgb[2] + ')';
+  ctx.font = L.fontPx + 'px ' + CAPTION_FONT_STACK;
 
+  // The seed gets the margin minus the palette name and one clear gap.
+  const limit = L.fw - ctx.measureText(paletteId).width - L.fontPx * 2;
   let text = 'seed: ' + displaySeed(seed, seed32);
-  const limit = L.fw * 0.7;
+
+  const floor = Math.max(1, Math.round(L.fontPx * CAPTION_MIN_SCALE));
+  let size = L.fontPx;
+  while (size > floor && ctx.measureText(text).width > limit) {
+    size--;
+    ctx.font = size + 'px ' + CAPTION_FONT_STACK;
+  }
   if (ctx.measureText(text).width > limit) {
-    // Cut code points, not UTF-16 units, so a surrogate pair never splits.
+    // Only below the floor, and only then: cut code points, not UTF-16 units,
+    // so a surrogate pair never splits.
     const cps = Array.from(text);
     while (cps.length > 1 && ctx.measureText(cps.join('') + '…').width > limit) cps.pop();
     text = cps.join('') + '…';
@@ -297,6 +312,7 @@ function drawCaption(ctx, W, L, seed, seed32, paletteId, inkRgb) {
 
   ctx.textAlign = 'left';
   ctx.fillText(text, L.m, L.captionY);
+  ctx.font = L.fontPx + 'px ' + CAPTION_FONT_STACK;
   ctx.textAlign = 'right';
   ctx.fillText(paletteId, W - L.m, L.captionY);
 }
@@ -332,14 +348,18 @@ function randomSeed() {
   return a + ' ' + n + ' ' + d;
 }
 
-/** Filename stem for the export. */
+/** Filename stem for the export. The ASCII slug alone is not a name: it maps
+    every non-alphanumeric code point to '-', so two different posters used to
+    share one file (both emoji seeds landed on noise-poster-seed.png). When the
+    slug does not read back as the seed, the seed's own hash goes on the end. */
 function slugify(seed) {
   const s = Array.from(seed)
     .map((ch) => (/[a-z0-9]/i.test(ch) ? ch.toLowerCase() : '-'))
     .join('')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
-  return s === '' ? 'seed' : s;
+  if (s !== '' && s.replace(/-/g, ' ') === seed) return s;
+  return (s === '' ? 'seed' : s) + '-' + hashSeed(seed).toString(16).padStart(8, '0');
 }
 
 /* ---- hash ----------------------------------------------------------------- */
@@ -744,7 +764,8 @@ function init() {
     // Shuffle changes the canvas and nothing else, and a canvas label is not a
     // live region — so say the new seed through the status line that is
     // already on the page. A palette change announces itself via aria-pressed.
-    setNote('Seed: ' + seed);
+    // Not over a render failure: that message is the truer one.
+    if (els.note.textContent !== RENDER_FAIL) setNote('Seed: ' + seed);
   });
   els.download.addEventListener('click', onDownload);
   window.addEventListener('hashchange', onHashChange);
@@ -758,7 +779,11 @@ function init() {
     }, 150);
   });
 
-  apply(parseHash(location.hash));
+  // Fill the field once, here. After this, syncField()'s rule owns it: an
+  // empty field means "the user cleared it", and is left alone.
+  const initial = parseHash(location.hash);
+  els.seed.value = initial.seed;
+  apply(initial);
 }
 
 document.addEventListener('DOMContentLoaded', init);
