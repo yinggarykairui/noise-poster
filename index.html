@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>noise-poster</title>
 <meta name="description" content="A page that draws an abstract poster from layered value noise — the seed is in the URL, so any poster comes back, and the PNG export is A4 at 300 DPI.">
+<!-- Empty data URI: stops the browser's automatic /favicon.ico request, which
+     would otherwise 404 into the console on a cold load. No file, no network. -->
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 <!-- defer: app.js runs before DOMContentLoaded fires, and it does all of its
      work from that event, so no hash parsing happens at module scope. -->

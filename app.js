@@ -239,3 +239,225 @@ function drawCaption(ctx, W, L, seed, seed32, paletteId, inkRgb) {
   ctx.textAlign = 'right';
   ctx.fillText(paletteId, W - L.m, L.captionY);
 }
+
+/* ---- seed strings --------------------------------------------------------- */
+
+/** Cut to 64 code points. One code path owns the cap: the field has no
+    maxlength, because maxlength counts UTF-16 units and this counts code
+    points, and two units would disagree on any astral character. */
+function clampSeed(s) {
+  const cps = Array.from(s);
+  return cps.length > SEED_MAX_CP ? cps.slice(0, SEED_MAX_CP).join('') : s;
+}
+
+const ADJECTIVES = [
+  'north', 'quiet', 'pale', 'slow', 'hollow', 'bright', 'damp', 'iron',
+  'soft', 'wild', 'cold', 'high', 'shallow', 'dry', 'deep', 'thin',
+  'rough', 'still', 'warm', 'dark', 'clear', 'faint', 'sharp', 'plain'
+];
+
+const NOUNS = [
+  'light', 'tide', 'ridge', 'ember', 'drift', 'harbour', 'marsh', 'spire',
+  'gully', 'thaw', 'willow', 'quarry', 'meadow', 'cinder', 'basin', 'lantern',
+  'furrow', 'cairn', 'estuary', 'shale', 'orchard', 'cove', 'moraine', 'reef'
+];
+
+/** The one place Math.random is allowed: inventing a seed string, never tone.
+    24 x 24 x 100 = 57,600 combinations. */
+function randomSeed() {
+  const a = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const n = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  const d = String(Math.floor(Math.random() * 100)).padStart(2, '0');
+  return a + ' ' + n + ' ' + d;
+}
+
+/** Filename stem for the export. */
+function slugify(seed) {
+  const s = Array.from(seed)
+    .map((ch) => (/[a-z0-9]/i.test(ch) ? ch.toLowerCase() : '-'))
+    .join('')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return s === '' ? 'seed' : s;
+}
+
+/* ---- hash ----------------------------------------------------------------- */
+
+/**
+ * #s=<encodeURIComponent(seed)>&p=<palette-id>
+ *
+ * The hash is the only input and the whole product, so every failure here has
+ * to degrade to a poster rather than to a blank page. Each decodeURIComponent
+ * gets its own try/catch for URIError, and the whole parse gets one more.
+ * Called from init(), never at module scope.
+ */
+function parseHash(raw) {
+  const state = { seed: DEFAULT_SEED, palette: DEFAULT_PALETTE };
+  try {
+    let h = String(raw || '');
+    if (h.charAt(0) === '#') h = h.slice(1);
+    if (h.charAt(0) === '/') h = h.slice(1);
+    if (h.trim() === '') return state;
+
+    for (const part of h.split('&')) {
+      const eq = part.indexOf('=');            // split on the FIRST '=' only
+      const key = eq < 0 ? part : part.slice(0, eq);
+      if (key !== 's' && key !== 'p') continue; // unknown keys ignored
+      const encoded = eq < 0 ? '' : part.slice(eq + 1);
+      let value;
+      try {
+        value = decodeURIComponent(encoded);
+      } catch (err) {
+        if (!(err instanceof URIError)) throw err;
+        // Undecodable value: this key falls back to its default, the other
+        // key still applies, and the poster still paints.
+        if (key === 's') state.seed = DEFAULT_SEED;
+        else state.palette = DEFAULT_PALETTE;
+        continue;
+      }
+      // Last occurrence wins, because the loop keeps overwriting.
+      if (key === 's') {
+        const seed = clampSeed(value);
+        state.seed = seed === '' ? DEFAULT_SEED : seed;
+      } else if (Object.prototype.hasOwnProperty.call(PALETTES, value)) {
+        state.palette = value;                 // case-sensitive match
+      } else {
+        state.palette = DEFAULT_PALETTE;
+      }
+    }
+  } catch (err) {
+    return { seed: DEFAULT_SEED, palette: DEFAULT_PALETTE };
+  }
+  return state;
+}
+
+function canonicalHash(seed, palette) {
+  return '#s=' + encodeURIComponent(seed) + '&p=' + palette;
+}
+
+/* ---- app ------------------------------------------------------------------ */
+
+const state = { seed: DEFAULT_SEED, palette: DEFAULT_PALETTE };
+const els = {};
+let seedTimer = 0;
+let selfHash = '';     // the hash this page last wrote, to tell it from a paste
+
+function renderPreview() {
+  const cssW = els.canvas.clientWidth;
+  if (cssW <= 0) return;
+  // Backing store is capped at 2x: past that the grain is invisible and the
+  // fill cost is not.
+  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  const W = Math.max(1, Math.round(cssW * scale));
+  const H = Math.round(W * EXPORT_H / EXPORT_W);
+  if (els.canvas.width !== W || els.canvas.height !== H) {
+    els.canvas.width = W;
+    els.canvas.height = H;
+  }
+  drawPoster(els.canvas.getContext('2d'), W, H, state.seed, state.palette);
+  els.canvas.setAttribute('aria-label',
+    'Noise poster, seed ' + state.seed + ', palette ' + state.palette);
+}
+
+function syncControls() {
+  if (els.seed.value !== state.seed) els.seed.value = state.seed;
+  for (const btn of els.swatches) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.palette === state.palette));
+  }
+  document.documentElement.style.setProperty('--paper', PALETTES[state.palette][0]);
+  document.documentElement.style.setProperty('--ink', PALETTES[state.palette][3]);
+  document.documentElement.style.setProperty('--focus', PALETTES[state.palette][3]);
+}
+
+function writeHash() {
+  const hash = canonicalHash(state.seed, state.palette);
+  if (location.hash === hash) return;
+  selfHash = hash;
+  try {
+    history.replaceState(null, '', hash);
+  } catch (err) {
+    // file:// in some browsers refuses replaceState; the page still works.
+    location.hash = hash;
+  }
+}
+
+function apply(next, opts) {
+  state.seed = next.seed;
+  state.palette = next.palette;
+  syncControls();
+  renderPreview();
+  if (!opts || opts.writeHash !== false) writeHash();
+}
+
+function onSeedInput() {
+  clearTimeout(seedTimer);
+  seedTimer = setTimeout(() => {
+    const seed = clampSeed(els.seed.value);
+    apply({ seed: seed === '' ? DEFAULT_SEED : seed, palette: state.palette });
+  }, 200);
+}
+
+function onHashChange() {
+  if (location.hash === selfHash) return;
+  apply(parseHash(location.hash));
+}
+
+function buildSwatches() {
+  els.swatches = PALETTE_IDS.map((id) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'swatch';
+    btn.dataset.palette = id;
+    btn.setAttribute('aria-pressed', 'false');
+
+    const bar = document.createElement('span');
+    bar.className = 'bar';
+    // Built from PALETTES so the swatch and the poster cannot drift apart.
+    const s = PALETTES[id];
+    bar.style.background = 'linear-gradient(to right,' +
+      s[0] + ' 0 25%,' + s[1] + ' 25% 50%,' + s[2] + ' 50% 75%,' + s[3] + ' 75% 100%)';
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = id;
+
+    btn.appendChild(bar);
+    btn.appendChild(name);
+    btn.addEventListener('click', () => {
+      apply({ seed: state.seed, palette: id });
+    });
+    els.swatchRoot.appendChild(btn);
+    return btn;
+  });
+}
+
+function init() {
+  els.canvas = document.getElementById('poster');
+  els.seed = document.getElementById('seed');
+  els.shuffle = document.getElementById('shuffle');
+  els.swatchRoot = document.getElementById('swatches');
+  els.download = document.getElementById('download');
+  els.note = document.getElementById('export-note');
+
+  buildSwatches();
+
+  els.seed.addEventListener('input', onSeedInput);
+  els.shuffle.addEventListener('click', () => {
+    apply({ seed: randomSeed(), palette: state.palette });
+  });
+  window.addEventListener('hashchange', onHashChange);
+
+  // Re-render only when the backing store would actually change size.
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const scale = Math.min(window.devicePixelRatio || 1, 2);
+      if (Math.round(els.canvas.clientWidth * scale) !== els.canvas.width) renderPreview();
+    }, 150);
+  });
+
+  apply(parseHash(location.hash));
+}
+
+document.addEventListener('DOMContentLoaded', init);
