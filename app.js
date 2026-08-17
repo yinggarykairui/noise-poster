@@ -577,14 +577,36 @@ function renderPreview() {
 }
 
 const RENDER_FAIL = 'This browser could not draw the poster';
+const EXPORT_FAIL = 'Export failed on this device';
 
-/** The one status line under the controls: role="status", so writing it is
-    also how anything on this page speaks to a screen reader. A long line can
-    wrap and make the controls taller, so the layout is re-measured after. */
+/* ---- the status line ------------------------------------------------------
+   #export-note is role="status": the page's only screen-reader voice, and the
+   only thing on it that speaks without being asked. It carries three unrelated
+   messages, so it gets one ownership rule, written down here:
+
+     The line describes the poster that is on screen right now, and nothing
+     else. Every change of poster clears it first (apply() does that, before
+     the render), and only the thing that caused that change may then write it.
+     So: a render failure is written by renderPreview, an export failure by
+     onDownload, and the new seed by Shuffle — and all three are gone the
+     moment the poster they describe is gone.
+
+   The rule exists because the Shuffle announcement outlived its poster: it
+   survived a typed seed, a palette click, a pasted hash and ten seconds, and
+   went on naming a seed that was no longer anywhere on the page. */
+
+/** Write the status line. Returns true if the text actually changed, so the
+    caller can re-measure the layout — a long line can wrap and make the
+    controls taller. Never re-measures by itself: apply() already does. */
 function setNote(text) {
-  if (els.note.textContent === text) return;
+  if (els.note.textContent === text) return false;
   els.note.textContent = text;
-  if (relayout()) renderPreview();
+  return true;
+}
+
+/** setNote for callers outside apply(), which must pick up a height change. */
+function setNoteAndFit(text) {
+  if (setNote(text) && relayout()) renderPreview();
 }
 
 /* Write into the seed field only when the field is not already describing the
@@ -661,6 +683,9 @@ function apply(next, opts) {
   state.seed = next.seed;
   state.palette = next.palette;
   syncControls();
+  // The poster is about to change, so whatever the status line said about the
+  // old one stops being true here. renderPreview may write it again.
+  setNote('');
   relayout();
   renderPreview();
   if (!opts || opts.writeHash !== false) writeHash();
@@ -763,7 +788,10 @@ async function onDownload() {
 
   els.download.disabled = true;
   els.download.textContent = 'Rendering…';
-  setNote('');
+  // Only this function's own verdict is dropped on a retry: the line belongs to
+  // whatever last described the current poster, and an export is not a change
+  // of poster.
+  if (els.note.textContent === EXPORT_FAIL) setNoteAndFit('');
   await nextPaint();
 
   let url = '';
@@ -786,7 +814,7 @@ async function onDownload() {
     a.click();
     a.remove();
   } catch (err) {
-    setNote('Export failed on this device');
+    setNoteAndFit(EXPORT_FAIL);
   } finally {
     // Revoke on the next task, not inside the click's own turn: the download is
     // started during click dispatch, and revoking synchronously can cancel it.
@@ -818,7 +846,9 @@ function init() {
     // live region — so say the new seed through the status line that is
     // already on the page. A palette change announces itself via aria-pressed.
     // Not over a render failure: that message is the truer one.
-    if (els.note.textContent !== RENDER_FAIL) setNote('Seed: ' + seed);
+    // apply() has just cleared the line; only a render failure may still be
+    // there, and that message outranks this one.
+    if (els.note.textContent !== RENDER_FAIL) setNoteAndFit('Seed: ' + seed);
   });
   els.download.addEventListener('click', onDownload);
   window.addEventListener('hashchange', onHashChange);
