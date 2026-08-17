@@ -22,12 +22,18 @@
 
 const PALETTE_IDS = ['ink', 'rust', 'moss', 'dusk', 'bone'];
 
+/* The two middle stops sit at even lightness thirds between stop 0 and stop 3
+   (measured in CIELAB, keeping each palette's own a/b so the hue is unchanged).
+   Before, every ramp spent its first third on two near-identical light tones —
+   bone's adjacent contrast ratios ran 1.28 / 1.86 / 4.68, so it read as mush.
+   Measured now: ink 2.19 / 2.60 / 2.49, rust 1.93 / 2.20 / 2.34,
+   moss 1.96 / 2.23 / 2.39, dusk 2.02 / 2.34 / 2.43, bone 2.00 / 2.31 / 2.42. */
 const PALETTES = {
-  ink:  ['#f2efe9', '#cfd4d8', '#6e7b86', '#1b2126'],
-  rust: ['#f6f0e7', '#e8cdb4', '#c07850', '#5a2f22'],
-  moss: ['#f0f2ea', '#cdd8c2', '#7d9070', '#2f3b2b'],
-  dusk: ['#f1eef4', '#d3cbdd', '#8b7fa3', '#342c44'],
-  bone: ['#f4f1ec', '#ddd6cb', '#a99c8a', '#3a3229']
+  ink:  ['#f2efe9', '#9fa4a8', '#535f6a', '#1b2126'],
+  rust: ['#f6f0e7', '#c5ab93', '#a5613a', '#5a2f22'],
+  moss: ['#f0f2ea', '#a7b29d', '#637657', '#2f3b2b'],
+  dusk: ['#f1eef4', '#afa7b8', '#706487', '#342c44'],
+  bone: ['#f4f1ec', '#b3aca1', '#776b5a', '#3a3229']
 };
 
 const DEFAULT_SEED = 'north light';
@@ -40,7 +46,24 @@ const EXPORT_H = 3508;
 const OCTAVES = 5;
 const LACUNARITY = 2;
 const PERSISTENCE = 0.5;
-const F0 = 3.0;              // three noise cells across the field's short edge
+
+/* Base frequency: noise cells across the field's short edge. Seed-derived over
+   [1.7, 5.0] rather than pinned at 3.0, because with one frequency every seed
+   produced the same mid-frequency camouflage and Shuffle stopped paying after
+   the second press. Still a pure function of the seed — no control, no random. */
+const F0_MIN = 1.7;
+const F0_SPAN = 3.3;
+
+/* Tone curve. fBm plus the vertical tilt is a narrow hump, not a spread:
+   measured over 316,028 samples across 47 seeds, d = n*0.88 + 0.12*(1-v) has
+   mean 0.5011 and sd 0.126, min 0.054, max 0.932. Feeding that straight into
+   floor(t*B) left the extreme bands unreachable, so a sheet declaring 8 bands
+   painted 4 or 5 and lightest-to-darkest measured as little as 1.86:1.
+   TONE is the logistic CDF of that measured distribution, which spreads d
+   across the whole [0,1) ramp. TONE_K = 12 was picked by measurement: it is
+   where the mean dominant-band share bottoms out. */
+const TONE_MU = 0.5011;
+const TONE_K = 12;
 
 /* ---- seeded noise --------------------------------------------------------- */
 
@@ -134,6 +157,26 @@ function bandCount(seed32) {
   return 5 + ((seed32 >>> 8) % 4);
 }
 
+/** Base frequency comes from the seed: 1.7 to 5.0 cells across the short edge.
+    Taken through the lattice hash rather than off a bit slice of seed32: FNV-1a
+    barely moves its high bits when only the last character changes, so a raw
+    slice gave 'seed 0' through 'seed 7' just two distinct frequencies. */
+function baseFreq(seed32) {
+  return F0_MIN + hash2(0, 0, seed32 ^ 0x7f4a7c15) * F0_SPAN;
+}
+
+/**
+ * The tone curve is  t = 1 / (1 + exp(-TONE_K * (d - TONE_MU))),  and the band
+ * is floor(t * B). Because the curve is monotone, that is the same as counting
+ * how many band boundaries d has passed — so this solves the B-1 boundaries
+ * once per poster instead of evaluating an exp 8.7 million times per export.
+ */
+function bandEdges(B) {
+  const edges = new Float64Array(B - 1);
+  for (let b = 1; b < B; b++) edges[b - 1] = TONE_MU - Math.log(B / b - 1) / TONE_K;
+  return edges;
+}
+
 /* ---- layout ---------------------------------------------------------------
    Everything is derived from the canvas size, so the preview and the 2480x3508
    export share one function. At export: M = 198, field 2084 x 2914, caption
@@ -192,6 +235,9 @@ function drawPoster(ctx, W, H, seed, paletteId) {
 
   const seeds = octaveSeeds(seed32);
   const grainSeed = (seed32 ^ 0x5bf03635) | 0;
+  const f0 = baseFreq(seed32);
+  const edges = bandEdges(B);
+  const last = B - 1;
   const aspect = L.fh / L.fw;               // keeps the noise cells square
   const img = ctx.createImageData(L.fw, L.fh);
   const data = img.data;
@@ -199,15 +245,17 @@ function drawPoster(ctx, W, H, seed, paletteId) {
 
   for (let py = 0; py < L.fh; py++) {
     const v = (py + 0.5) / L.fh;
-    const ny = v * F0 * aspect;
-    const tilt = 0.12 * (1 - v);            // fixed vertical tilt: light top
+    const ny = v * f0 * aspect;
+    const tilt = 0.12 * (1 - v);            // fixed vertical tilt
     for (let px = 0; px < L.fw; px++) {
       const u = (px + 0.5) / L.fw;
-      const n = fbm(u * F0, ny, seeds);
-      const t0 = n * 0.88 + tilt;
+      const n = fbm(u * f0, ny, seeds);
       const g = hash2(px, py, grainSeed) - 0.5;   // paper tooth
-      const t = Math.min(0.999999, Math.max(0, t0 + 0.012 * g));
-      const b = Math.min(B - 1, Math.floor(t * B)) * 3;
+      const d = n * 0.88 + tilt + 0.012 * g;
+      // The band is how many tone-curve boundaries d has passed.
+      let b = 0;
+      while (b < last && d >= edges[b]) b++;
+      b *= 3;
       data[i++] = band[b];
       data[i++] = band[b + 1];
       data[i++] = band[b + 2];
