@@ -61,21 +61,23 @@ delight levers. It adds no new capability to the drawing itself.
 | 7 | Nothing in the repo names the file a download produces | **closed day 045** — "What it does" names `noise-poster-<seed-slug>-<palette>.png` and why the palette is in it. Verified by a real headless download: seed `north light` + palette `rust` → `noise-poster-north-light-rust.png`, 932,597 bytes, 2480 × 3508. |
 | 8 | The screenshot's alt text is the word "screenshot" | **closed day 045** — replaced with a sentence describing the shipped capture, verified against the committed `screenshot.png`. |
 | 9 | The side arrangement leaves a dead slab under Download | **closed day 045** — CSS only. `.page.lay-side` is now four rows (`1fr`, masthead, controls, `1fr`) with `row-gap: 0` and a 14 px `margin-bottom` welding the masthead to the controls. The leftover is unchanged in total and now splits evenly above and below. Gap under the controls 455.84 → 227.92 at 1280×800, 556.84 → 278.42 at 1440×900, 735.84 → 367.92 at 1920×1080, each matched above the masthead to the hundredth of a pixel. Page class and poster size identical to `287a103` at all nine measured viewports, including the 1280×345 guard case (0.84 px of leftover, no scrollbar). |
-| 10 | Four smaller truths | **first clause closed day 045** — clicking the poster rerolls it, same code path as Shuffle: a click changes the seed field, the hash and the pixels, writes the same `Seed: X`, keeps `#poster` out of the tab order, and leaves `history.length` unchanged over 20 clicks. **The other three excluded**: the control-character seed caption (needs a seed alias), emoji printing in colour on a monochrome sheet (touches the export path), and Back not undoing a Shuffle (`pushState` would trap Back, and click-to-reroll makes that trade worse). Carried to #123. |
+| 10 | Four smaller truths | **first clause closed day 045** — clicking the poster changes the sheet, and does not eat a seed the user has typed: a click commits an uncommitted seed (indistinguishable from typing and waiting out the debounce — same field, hash, aria-label, status line and pixels) and rerolls once the field already agrees with the sheet, through Shuffle's own `reroll()`. It changes the seed field, the hash and the pixels, writes `Seed: X` on the reroll, keeps `#poster` out of the tab order, and leaves `history.length` unchanged over 20 reroll clicks and 10 commit clicks. A `title` on `#poster` names the gesture, and a press that travels more than 5 CSS px is a drag, not a click. **The other three excluded**: the control-character seed caption (needs a seed alias), emoji printing in colour on a monochrome sheet (touches the export path), and Back not undoing a Shuffle (`pushState` would trap Back, and click-to-reroll makes that trade worse). Carried to #123. |
 
 Also fenced out, and named here so it is not re-derived: **the delight
 ceiling**. Every poster is still the same family of contoured organic blobs.
 Day 045 added a gesture, not a new picture. Changing what the noise *makes* is
 not a `size:s` day. Carried to #123.
 
-The excluded set is therefore, in full: items 1, 2, 3, 4, 6, item 10's other
-three clauses, and the delight ceiling. Seven members, identical to the day-045
-spec comment's EXCLUDES and to #123.
+The excluded set is therefore, in full: items 1, 2, 3, 4 and 6, item 10's other
+three clauses, and the delight ceiling. That is exactly the membership of the
+day-045 spec comment's EXCLUDES and of #123 — which counts the six #58
+residuals in its title and opening sentence, and gives the delight ceiling a
+section of its own.
 
 ## Open threads
 
-- **#123** carries the seven excluded residuals verbatim. A revisit reads it
-  before re-deriving anything.
+- **#123** carries that excluded set verbatim. A revisit reads it before
+  re-deriving anything.
 - **Items 3 and 4 are one conversation** about `MAX_BACKING_PX`. Do not pick
   either alone.
 - **Item 1 wants its own day.** It is a redesign of the control stack at small
