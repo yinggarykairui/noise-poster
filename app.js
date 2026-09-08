@@ -795,6 +795,80 @@ function reroll() {
   noteWriteAndFit(NOTE_SEED, 'Seed: ' + seed);
 }
 
+/* The picture's own click is not the Shuffle button, and it must not throw away
+   a seed the user has typed and not yet committed. Before the gesture existed
+   the canvas was inert and the 200 ms debounce always delivered that seed; with
+   the canvas rerolling unconditionally, a click — and on a phone a tap, which
+   is the universal way to dismiss the keyboard — ate the input on the most
+   natural touch there is.
+
+   So the picture answers the likelier question first: when the field is asking
+   for a seed other than the one on screen, the click shows that seed. It only
+   rerolls once the field already agrees with the sheet. Committing runs exactly
+   the path the debounce would have run 200 ms later — same apply(), so the
+   field, the canonical hash, the aria-label, the status line and the pixels are
+   identical whether the seed arrived by waiting or by clicking.
+
+   Shuffle is deliberately untouched: it always rerolls, pending seed or not. */
+function onPosterActivate() {
+  const asked = fieldSeed();          // what the field is asking for right now
+  if (asked !== state.seed) {
+    takePendingSeed();                // settle the debounce here, not 200 ms on
+    apply({ seed: asked, palette: state.palette });
+    return;
+  }
+  reroll();
+}
+
+/* A press, a drag and a release across the picture is a drag, not a click — but
+   the platform dispatches a click for it all the same, so a mouse drag rerolled
+   the poster out from under a user who was selecting, or flinging the page, or
+   just resting a hand. Anchor the pointer where it went down on the canvas and
+   refuse the click if it travelled further than the slop. 5 CSS px is the usual
+   platform figure: a hand-held click jiggles by one or two, a drag never stays
+   inside it. Touch needs no help — a swipe scrolls and never produces a click —
+   and gets none. This is the canvas's rule only; Shuffle is a real button and
+   keeps the platform's own. */
+const CLICK_SLOP_PX = 5;
+
+let pressAnchor = null;      // pointer position at pointerdown on the canvas
+let pressDragged = false;    // did this press already travel past the slop?
+
+function pastSlop(ev, anchor) {
+  return Math.hypot(ev.clientX - anchor.x, ev.clientY - anchor.y) > CLICK_SLOP_PX;
+}
+
+function onPosterPointerDown(ev) {
+  pressAnchor = { x: ev.clientX, y: ev.clientY };
+  pressDragged = false;
+}
+
+function onPosterPointerMove(ev) {
+  if (pressAnchor && !pressDragged && pastSlop(ev, pressAnchor)) pressDragged = true;
+}
+
+/* The browser took the gesture over — a scroll, usually. Whatever it was, it
+   was not a click, and the anchor it left behind must not answer for the next
+   one. A pointerdown clears this again. */
+function onPosterPointerCancel() {
+  pressAnchor = null;
+  pressDragged = true;
+}
+
+function onPosterClick(ev) {
+  const anchor = pressAnchor;
+  const dragged = pressDragged;
+  pressAnchor = null;
+  pressDragged = false;
+  if (dragged) return;
+  // Release far from the press: a drag whose intermediate moves were never seen
+  // (the pointer left the canvas and came back) still fails here.
+  if (anchor && pastSlop(ev, anchor)) return;
+  // No anchor at all means this click had no press of its own on the canvas —
+  // synthesised, or from assistive tech. There is no drag to suspect.
+  onPosterActivate();
+}
+
 /* Compare the hash against the state it would produce, never against a
    remembered "this one was mine" string: a hash the page wrote is a hash the
    user can navigate back to, so remembering it makes Back a no-op and leaves
@@ -920,7 +994,10 @@ function init() {
 
   els.seed.addEventListener('input', onSeedInput);
   els.shuffle.addEventListener('click', reroll);
-  els.canvas.addEventListener('click', reroll);
+  els.canvas.addEventListener('pointerdown', onPosterPointerDown);
+  els.canvas.addEventListener('pointermove', onPosterPointerMove);
+  els.canvas.addEventListener('pointercancel', onPosterPointerCancel);
+  els.canvas.addEventListener('click', onPosterClick);
   els.download.addEventListener('click', onDownload);
   window.addEventListener('hashchange', onHashChange);
 
