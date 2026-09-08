@@ -596,7 +596,11 @@ const EXPORT_FAIL = 'Export failed on this device';
 
      1. The line describes the poster that is on screen right now. Every change
         of poster resets it (noteReset(), called by apply() before the render)
-        and bumps an epoch.
+        and bumps an epoch. "Change of poster" means a change of the two inputs
+        drawPoster actually consumes — the seed or the palette. A call that
+        repaints the same seed in the same palette produces a byte-identical
+        sheet, so nothing said about the sheet on screen has stopped being
+        true: that call resets nothing and does not move the epoch.
      2. A writer that started before that change may not write after it. Async
         writers carry the epoch they started in; if it has moved on, they are
         describing a poster that is gone, and they are declined.
@@ -610,7 +614,10 @@ const EXPORT_FAIL = 'Export failed on this device';
    on top of a later, true announcement and pinned a failure to a sheet that was
    never exported. Without (3) the export failure hid a still-dead preview,
    while the Shuffle path deferred to it correctly — the same precedence
-   implemented twice, once. */
+   implemented twice, once. Rule 1's definition of "change" is the third: with
+   apply() resetting unconditionally, pressing the already-pressed swatch, or
+   re-committing the seed already in the field, wiped a true `Seed: X` while
+   the sheet on screen was byte-identical. */
 
 const NOTE_NONE = 0;
 const NOTE_SEED = 1;
@@ -719,12 +726,19 @@ function writeHash() {
 }
 
 function apply(next, opts) {
+  // Rule 1's test, and the only place it is made: the poster is what
+  // drawPoster draws from, so it has changed exactly when the seed or the
+  // palette has. Everything below runs either way — a no-op still re-syncs the
+  // controls, re-lays out, repaints and rewrites the hash, all of which are
+  // idempotent — but a repaint of the same sheet may not silence a true
+  // announcement about it.
+  const changed = next.seed !== state.seed || next.palette !== state.palette;
   state.seed = next.seed;
   state.palette = next.palette;
   syncControls();
   // The poster is about to change, so whatever the status line said about the
   // old one stops being true here. renderPreview may write it again.
-  noteReset();
+  if (changed) noteReset();
   relayout();
   renderPreview();
   if (!opts || opts.writeHash !== false) writeHash();
