@@ -56,12 +56,12 @@ delight levers. It adds no new capability to the drawing itself.
 | 2 | 11 px of horizontal overflow at a 94 CSS px viewport | **excluded** — below WCAG 1.4.10's 320 px target, which passes at 0 px. Letting `#shuffle` shrink moves the overflow into the unbreakable label. Carried to #123. |
 | 3 | The draw is synchronous; Shuffle has no pending state | **excluded** — Shuffle is not silent (`Seed: X` through `role="status"`). A disable/relabel dance inside a ≤132 ms fill is a flash, not feedback. Revisit with item 4. Carried to #123. |
 | 4 | The backing-store cap softens the poster on large retina displays | **excluded** — 1.5 device px/CSS px at 2560×1400 needs ~2.96 Mpx, ~2.3× today's fill, which is the responsiveness `MAX_BACKING_PX` bought back. Needs a measured adaptive budget. Carried to #123. |
-| 5 | A no-op wipes a true announcement | **closed day 045** — `apply()` resets the status line and bumps the epoch only when the seed or the palette actually differs. The doctrine comment was corrected in the same commit. |
+| 5 | A no-op wipes a true announcement | **closed day 045** — `apply()` resets the status line and bumps the epoch only when the seed or the palette actually differs. The doctrine comment was corrected in the same commit. Measured at 1280×800: after Shuffle the line reads `Seed: X`; re-pressing the pressed swatch and re-committing the identical seed leave both the line and `toDataURL()` unchanged; a different swatch still clears the line. |
 | 6 | Overlapping exports leave the earlier failure on the line | **excluded** — re-verified on no user path: `download.disabled` spans the whole export and is cleared in `finally`. Recorded, not owed. Carried to #123. |
-| 7 | Nothing in the repo names the file a download produces | **closed day 045** — "What it does" names `noise-poster-<seed-slug>-<palette>.png` and why the palette is in it. |
+| 7 | Nothing in the repo names the file a download produces | **closed day 045** — "What it does" names `noise-poster-<seed-slug>-<palette>.png` and why the palette is in it. Verified by a real headless download: seed `north light` + palette `rust` → `noise-poster-north-light-rust.png`, 932,597 bytes, 2480 × 3508. |
 | 8 | The screenshot's alt text is the word "screenshot" | **closed day 045** — replaced with a sentence describing the shipped capture, verified against the committed `screenshot.png`. |
-| 9 | The side arrangement leaves a dead slab under Download | **closed day 045** — CSS only. `.page.lay-side` is now four rows (`1fr`, masthead, controls, `1fr`) with `row-gap: 0` and a 14 px `margin-bottom` welding the masthead to the controls. The leftover is unchanged in total and now splits evenly above and below. The poster's size is untouched at every viewport. |
-| 10 | Four smaller truths | **first clause closed day 045** — clicking the poster rerolls it, same code path as Shuffle. **The other three excluded**: the control-character seed caption (needs a seed alias), emoji printing in colour on a monochrome sheet (touches the export path), and Back not undoing a Shuffle (`pushState` would trap Back, and click-to-reroll makes that trade worse). Carried to #123. |
+| 9 | The side arrangement leaves a dead slab under Download | **closed day 045** — CSS only. `.page.lay-side` is now four rows (`1fr`, masthead, controls, `1fr`) with `row-gap: 0` and a 14 px `margin-bottom` welding the masthead to the controls. The leftover is unchanged in total and now splits evenly above and below. Gap under the controls 455.84 → 227.92 at 1280×800, 556.84 → 278.42 at 1440×900, 735.84 → 367.92 at 1920×1080, each matched above the masthead to the hundredth of a pixel. Page class and poster size identical to `287a103` at all nine measured viewports, including the 1280×345 guard case (0.84 px of leftover, no scrollbar). |
+| 10 | Four smaller truths | **first clause closed day 045** — clicking the poster rerolls it, same code path as Shuffle: a click changes the seed field, the hash and the pixels, writes the same `Seed: X`, keeps `#poster` out of the tab order, and leaves `history.length` unchanged over 20 clicks. **The other three excluded**: the control-character seed caption (needs a seed alias), emoji printing in colour on a monochrome sheet (touches the export path), and Back not undoing a Shuffle (`pushState` would trap Back, and click-to-reroll makes that trade worse). Carried to #123. |
 
 Also fenced out, and named here so it is not re-derived: **the delight
 ceiling**. Every poster is still the same family of contoured organic blobs.
@@ -83,5 +83,7 @@ spec comment's EXCLUDES and to #123.
 - **The tone path stays frozen** until a day is picked specifically to change
   it. Any such day breaks old links and must say so in the sign-off.
 - **The screenshot is captured at 768×1024 @ dSF 2 with no hash**, which
-  resolves to the stack arrangement. Recapture at the same size or the alt
-  text stops being true.
+  resolves to the stack arrangement. Day 045 confirmed item 9 changes nothing
+  there — 768×1024 is `lay-stack` with a 438×620 poster before and after — so
+  the committed capture still matches its new alt text. Recapture at the same
+  size or that stops being true.
