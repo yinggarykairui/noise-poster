@@ -65,13 +65,29 @@ body {
 
 .page.lay-side {
   grid-template-columns: max-content var(--col, 280px);
-  /* max-content then 1fr: the poster spanning both rows must lengthen the
-     second row, not the first, or the controls float away from the masthead. */
-  grid-template-rows: max-content 1fr;
+  /* Four rows with 1fr at each end. The poster spans all of them, so the
+     height it does not need is split evenly above and below the masthead and
+     controls instead of piling up in one slab under Download. The two rows the
+     pair sits in stay max-content, so the poster lengthens the 1fr rows and
+     not them, or the controls float away from the masthead.
+
+     row-gap: 0 and a margin on the masthead, never two more grid gaps: the
+     gaps would add 28 px to this column's minimum height, and app.js's
+     relayout() decides whether this arrangement is even offered from a chrome
+     height that does not include them. At 1280x345 it is chosen with under a
+     pixel of leftover, so 28 px of unaccounted height is a scrollbar. */
+  grid-template-rows: 1fr max-content max-content 1fr;
+  row-gap: 0;
   grid-template-areas:
+    "sheet ."
     "sheet head"
-    "sheet ctl";
+    "sheet ctl"
+    "sheet .";
 }
+
+/* The 14 px row-gap used to provide, moved inside the masthead's own track so
+   the two 1fr rows never see it. Same welded pair, same measured height. */
+.page.lay-side .masthead { margin-bottom: 14px; }
 
 /* align-self: start, so neither box is stretched by the poster spanning both
    rows beside it — a stretched box measures the poster, not itself. */
