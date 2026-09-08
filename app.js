@@ -778,11 +778,16 @@ function takePendingSeed() {
    itself differently from the button — same new seed, same apply(), same line,
    same replaceState.
 
-   The canvas gets a click handler and `cursor: pointer`, and deliberately gets
-   nothing else: no tabindex, and role="img" is unchanged. A canvas in the tab
-   order would be a focusable control with no name and no keyboard action, and
-   Shuffle is already the labelled, reachable equivalent. This is a shortcut
-   for a mouse, not a second advertised control. */
+   The canvas gets a click handler, `cursor: pointer` and a `title`, and
+   deliberately gets nothing else: no tabindex, and role="img" is unchanged. A
+   canvas in the tab order would be a focusable control with no name and no
+   keyboard action, and Shuffle is already the labelled, reachable equivalent.
+   The `title` is the whole disclosure: a `cursor: pointer` that changes under
+   the hand and is named nowhere is a promise the page never keeps, and a
+   tooltip names the gesture — to a mouse and to voice control — without
+   spending a line of an already tight controls column on it. `title` is not
+   an accessible name here: the dynamic aria-label outranks it, and still wins.
+   This is a shortcut for a pointer, not a second advertised control. */
 function reroll() {
   takePendingSeed();      // a reroll replaces the seed, so drop a pending commit
   const seed = randomSeed();
