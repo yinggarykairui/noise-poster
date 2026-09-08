@@ -8,11 +8,9 @@ A page that draws an abstract poster from layered value noise — the seed is in
 
 ## What it does
 
-A poster is already drawn when the page opens: type a seed, press **Shuffle**
-for a random one, or click the poster itself to see the seed you have typed (it
-rerolls instead once the field already matches the sheet), pick one of five
-palettes (`ink`, `rust`, `moss`, `dusk`, `bone`), and press **Download PNG** for
-a 2480 × 3508 file — A4 at 300 DPI, saved as
+A poster is already drawn when the page opens: type a seed or press
+**Shuffle**, pick one of five palettes (`ink`, `rust`, `moss`, `dusk`, `bone`),
+and press **Download PNG** for a 2480 × 3508 file — A4 at 300 DPI, saved as
 `noise-poster-<seed-slug>-<palette>.png` because one seed makes a different
 sheet in each palette, with an 8-hex-digit hash of the seed after the slug
 (`noise-poster-mixed-case-8970dd94-ink.png`) whenever the slug does not read
