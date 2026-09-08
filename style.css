@@ -106,6 +106,10 @@ h1 {
   background: var(--paper);
   /* The sheet lies on the page rather than being cut out of it. */
   box-shadow: 0 3px 12px var(--shadow);
+  /* Clicking the sheet rerolls it — the same handler Shuffle runs. The cursor
+     is the only affordance it gets: the canvas stays out of the tab order and
+     keeps role="img", because Shuffle is the labelled keyboard equivalent. */
+  cursor: pointer;
 }
 
 /* ---- controls ------------------------------------------------------------ */

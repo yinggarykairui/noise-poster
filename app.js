@@ -773,6 +773,28 @@ function takePendingSeed() {
   return fieldSeed();
 }
 
+/* One reroll, two ways to ask for it: the Shuffle button and the poster
+   itself. Extracted rather than duplicated so the sheet can never announce
+   itself differently from the button — same new seed, same apply(), same line,
+   same replaceState.
+
+   The canvas gets a click handler and `cursor: pointer`, and deliberately gets
+   nothing else: no tabindex, and role="img" is unchanged. A canvas in the tab
+   order would be a focusable control with no name and no keyboard action, and
+   Shuffle is already the labelled, reachable equivalent. This is a shortcut
+   for a mouse, not a second advertised control. */
+function reroll() {
+  takePendingSeed();      // a reroll replaces the seed, so drop a pending commit
+  const seed = randomSeed();
+  apply({ seed: seed, palette: state.palette });
+  // A reroll changes the canvas and nothing else, and a canvas label is not a
+  // live region — so say the new seed through the status line that is already
+  // on the page. A palette change announces itself via aria-pressed.
+  // Not over a render failure: that message is the truer one.
+  // No bespoke check: noteWrite already knows a dead render outranks this.
+  noteWriteAndFit(NOTE_SEED, 'Seed: ' + seed);
+}
+
 /* Compare the hash against the state it would produce, never against a
    remembered "this one was mine" string: a hash the page wrote is a hash the
    user can navigate back to, so remembering it makes Back a no-op and leaves
@@ -897,17 +919,8 @@ function init() {
   buildSwatches();
 
   els.seed.addEventListener('input', onSeedInput);
-  els.shuffle.addEventListener('click', () => {
-    takePendingSeed();      // Shuffle replaces the seed, so drop a pending commit
-    const seed = randomSeed();
-    apply({ seed: seed, palette: state.palette });
-    // Shuffle changes the canvas and nothing else, and a canvas label is not a
-    // live region — so say the new seed through the status line that is
-    // already on the page. A palette change announces itself via aria-pressed.
-    // Not over a render failure: that message is the truer one.
-    // No bespoke check: noteWrite already knows a dead render outranks this.
-    noteWriteAndFit(NOTE_SEED, 'Seed: ' + seed);
-  });
+  els.shuffle.addEventListener('click', reroll);
+  els.canvas.addEventListener('click', reroll);
   els.download.addEventListener('click', onDownload);
   window.addEventListener('hashchange', onHashChange);
 
